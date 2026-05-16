@@ -373,10 +373,10 @@ int main(int argc, char *argv[]) {
                 continue;
             }
 
-            /* plain ESC: confirm exit */
-            mwin(1, "     CONFIRM EXIT?             ");
+            /* plain ESC: confirm exit (accept 'y'/'Y' or 's'/'S') */
+            mwin(1, "     CONFIRM EXIT? (y/n)       ");
             int c = getch();
-            if (c == 's' || c == 'S') {
+            if (c == 's' || c == 'S' || c == 'y' || c == 'Y') {
                 break;
             }
             refresh_screen();
