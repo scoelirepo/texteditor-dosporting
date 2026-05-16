@@ -1,3 +1,20 @@
+/*
+ * COELIText - tiny ncurses-based text editor
+ *
+ * main.c
+ * Minimal text editor demonstrating basic editing operations
+ * (insert, delete, split lines, merge lines) using a fixed-size
+ * in-memory buffer. Designed for simple editing tasks and as
+ * an educational example.
+ *
+ * Usage: ctx_ncurses <file>
+ *
+ * Notes:
+ * - Fixed-width buffer: MAX_LINES x COLS_PER_LINE characters.
+ * - Lines are stored flat in a single allocated block `j`.
+ * - The UI uses ncurses; screen layout reserves a header and footer.
+ */
+
 #include <ncurses.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,15 +27,15 @@
 #define FOOTER_HEIGHT    2
 #define CONTENT_HEIGHT   (LINES - HEADER_HEIGHT - FOOTER_HEIGHT)
 
-static unsigned char *j;      // buffer testo
+static unsigned char *j;      // text buffer (flat: line*COLS_PER_LINE + col)
 #define BUF(line, col) j[(line) * COLS_PER_LINE + (col)]
 
-static unsigned long fcon = 0;   // numero di linee del file
-static unsigned long cxp  = 0;   // prima linea visibile
-static int lin = 0;              // riga sullo schermo (0..)
-static int col = 1;              // colonna (1..80)
-static int swin = 0;             // INS on/off
-static int indn = 0;             // auto indent on/off (per ora solo flag)
+static unsigned long fcon = 0;   // number of lines currently in the buffer
+static unsigned long cxp  = 0;   // index of first visible line in the file
+static int lin = 0;              // cursor row on the screen (0..)
+static int col = 1;              // cursor column (1..COLS_PER_LINE)
+static int swin = 0;             // insert/overwrite mode toggle (INS)
+static int indn = 0;             // auto-indent flag (currently unused)
 
 static char filename[256];
 
@@ -44,15 +61,15 @@ static int find_last_content_col(unsigned long line) {
 // Wrapper that checks if we can safely add a line
 static int try_add_line(unsigned long line) {
     if (fcon >= MAX_LINES - 1) {
-        mwin(1, "    MEMORIA ESAURITA           ");
+        mwin(1, "    MEMORY EXHAUSTED           ");
         return 0;
     }
     return 1;
 }
 
-/* --- funzioni di gestione linee (comandi di linea) --- */
+/* --- line management functions (line commands) --- */
 
-// inserisce una nuova linea vuota in posizione line (shiftando verso il basso)
+// insert a new empty line at position `line` (shifts following lines down)
 int insert_blank_line(unsigned long line) {
     if (fcon >= MAX_LINES - 1) return 0;
     memmove(&BUF(line + 1, 0),
@@ -64,7 +81,7 @@ int insert_blank_line(unsigned long line) {
     return 1;
 }
 
-// taglia la linea corrente dalla colonna col (1-based) e mette il resto nella nuova linea
+// split the current line at column `col` (1-based). The remainder is moved to the new line
 int split_line_at(unsigned long line, int col) {
     if (fcon >= MAX_LINES - 1) return 0;
 
@@ -85,7 +102,7 @@ int split_line_at(unsigned long line, int col) {
     return 1;
 }
 
-// cancella completamente la linea "line" (Ctrl+BS)
+// delete the entire line `line` (mapped to Ctrl+Backspace)
 void delete_line(unsigned long line) {
     if (fcon <= 1) {
         for (int y = 0; y < COLS_PER_LINE; y++)
@@ -99,7 +116,7 @@ void delete_line(unsigned long line) {
     fcon--;
 }
 
-// fonde la linea "line" con la precedente (Alt+BS)
+// merge the line `line` with the previous line (mapped to Alt+Backspace)
 void merge_with_previous(unsigned long line) {
     if (line == 0) return;
     unsigned long prev = line - 1;
@@ -109,7 +126,7 @@ void merge_with_previous(unsigned long line) {
     
     if (start >= COLS_PER_LINE) {
         // Previous line is full; cannot merge without data loss
-        mwin(1, "  LINEA PRECEDENTE PIENA      ");
+        mwin(1, "  PREVIOUS LINE IS FULL       ");
         return;
     }
 
@@ -121,7 +138,7 @@ void merge_with_previous(unsigned long line) {
     delete_line(line);
 }
 
-/* --- schermo --- */
+/* --- screen --- */
 
 void refresh_screen(void) {
     int maxy, maxx;
@@ -131,7 +148,7 @@ void refresh_screen(void) {
     attron(COLOR_PAIR(1));
     mvhline(0, 0, ' ', maxx);
     mvprintw(0, 0,
-             "* COELIText : %-12s  COL %2d  LIN %-4ld   F1 save - ESC fine - F10 guida",
+             "* COELIText : %-12s  COL %2d  LIN %-4ld   F1 save - ESC exit - F10 help",
              filename, col, cxp + lin + 1);
     attroff(COLOR_PAIR(1));
 
@@ -151,7 +168,7 @@ void refresh_screen(void) {
     if (fcon < (unsigned long)vis_lines) {
         move(fcon + HEADER_HEIGHT, 0);
         attron(COLOR_PAIR(2));
-        const char *end = ">>>>>>>>>>>>>>>>>>>>  FINE  <<<<<<<<<<<<<<<<<<<<";
+        const char *end = ">>>>>>>>>>>>>>>>>>>>  END  <<<<<<<<<<<<<<<<<<<<";
         int len = (int)strlen(end);
         int start = (COLS_PER_LINE - len) / 2;
         hline(' ', COLS_PER_LINE);
@@ -188,7 +205,7 @@ int save_file(const char *fln, unsigned nc) {
 unsigned long load_file(const char *flnm, unsigned long mlin) {
     FILE *fp = fopen(flnm, "r");
     if (!fp) {
-        mwin(1, "    NON POSSO APRIRE IL FILE   ");
+        mwin(1, "    CANNOT OPEN FILE           ");
         getch();
         return (unsigned long)-1;
     }
@@ -221,7 +238,7 @@ unsigned long load_file(const char *flnm, unsigned long mlin) {
         }
 
         if (fline > mlin) {
-            mwin(1, "        MEMORIA ESAURITA       ");
+            mwin(1, "        MEMORY EXHAUSTED       ");
             getch();
             fclose(fp);
             return fline;
@@ -238,7 +255,7 @@ unsigned long load_file(const char *flnm, unsigned long mlin) {
     return fline;
 }
 
-/* --- finestre --- */
+/* --- windows --- */
 
 void mwin(int nr, const char *mess) {
     int h = 7;
@@ -263,13 +280,13 @@ void mwin(int nr, const char *mess) {
 
 void guida(void) {
     const char *txt[] = {
-        "Comandi di editing:",
-        "Invio con INS inserito inserisce una linea;",
-        "Ctrl+L taglia la linea dalla colonna corrente;",
-        "Ctrl+Y cancella linea; Alt+Y fonde con la precedente;",
-        "Ctrl+freccia (da aggiungere) movimento rapido;",
+        "Editing commands:",
+        "Enter with INS inserts a line;",
+        "Ctrl+L splits the line at the current column;",
+        "Ctrl+Y deletes line; Alt+Y merges with previous;",
+        "Ctrl+arrow (to add) fast movement;",
         "F2 auto indent ON/OFF (flag indn);",
-        "F5 fonde file; F6 blocco; F7 copia; F8 muove."
+        "F5 merge file; F6 block; F7 copy; F8 move."
     };
     int lines = sizeof(txt)/sizeof(txt[0]);
     int h = lines + 4;
@@ -293,7 +310,7 @@ void guida(void) {
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
-        fprintf(stderr, "uso: ctx_ncurses file\n");
+        fprintf(stderr, "usage: ctx_ncurses file\n");
         return 1;
     }
     strncpy(filename, argv[1], sizeof(filename)-1);
@@ -301,7 +318,7 @@ int main(int argc, char *argv[]) {
 
     j = malloc(MAX_LINES * COLS_PER_LINE);
     if (!j) {
-        fprintf(stderr, "memoria insufficiente\n");
+        fprintf(stderr, "insufficient memory\n");
         return 1;
     }
     memset(j, ' ', MAX_LINES * COLS_PER_LINE);
@@ -341,7 +358,7 @@ int main(int argc, char *argv[]) {
     for (;;) {
         int ch = getch();
 
-        /* gestione Alt+Y come ESC + 'y' */
+            /* handle Alt+Y as ESC followed by 'y' */
         if (ch == 27) {
             nodelay(stdscr, TRUE);
             int next = getch();
@@ -356,8 +373,8 @@ int main(int argc, char *argv[]) {
                 continue;
             }
 
-            /* ESC normale: conferma uscita */
-            mwin(1, "     CONFERMI FINE LAVORO ?    ");
+            /* plain ESC: confirm exit */
+            mwin(1, "     CONFIRM EXIT?             ");
             int c = getch();
             if (c == 's' || c == 'S') {
                 break;
@@ -369,7 +386,7 @@ int main(int argc, char *argv[]) {
         switch (ch) {
         case KEY_F(1):
             if (save_file(filename, (unsigned)fcon) != 0) {
-                mwin(1, "   ERRORE DI ACCESSO AL FILE   ");
+                mwin(1, "   FILE ACCESS ERROR          ");
             }
             break;
 
@@ -430,11 +447,11 @@ int main(int argc, char *argv[]) {
             }
             break;
 
-        case '\n': { // Invio: inserisce linea vuota sotto
+        case '\n': { // Enter: insert an empty line below
             unsigned long line = cxp + lin;
             if (!insert_blank_line(line + 1)) {
-                mwin(2, "  NON POSSO AGGIUNGERE LINEE \0"
-                        "        MEMORIA ESAURITA     \0");
+                mwin(2, "  CANNOT ADD LINES           \0"
+                        "        MEMORY EXHAUSTED     \0");
                 break;
             }
             if (lin < CONTENT_HEIGHT - 1) lin++;
@@ -443,11 +460,11 @@ int main(int argc, char *argv[]) {
         }
             break;
 
-        case 12: { // Ctrl+L = "Ctrl+Invio": taglia linea dalla colonna corrente
+        case 12: { // Ctrl+L = "Ctrl+Enter": split the line at the current column
             unsigned long line = cxp + lin;
             if (!split_line_at(line, col)) {
-                mwin(2, "  NON POSSO AGGIUNGERE LINEE \0"
-                        "        MEMORIA ESAURITA     \0");
+                mwin(2, "  CANNOT ADD LINES           \0"
+                        "        MEMORY EXHAUSTED     \0");
                 break;
             }
             if (lin < CONTENT_HEIGHT - 1) lin++;
@@ -456,7 +473,7 @@ int main(int argc, char *argv[]) {
         }
             break;
 
-        case 25: { // Ctrl+Y = "Ctrl+BS": cancella linea
+        case 25: { // Ctrl+Y = "Ctrl+Backspace": delete the current line
             unsigned long line = cxp + lin;
             delete_line(line);
             if (cxp + lin >= fcon && lin > 0)
