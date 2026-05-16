@@ -283,7 +283,7 @@ void guida(void) {
         "Editing commands:",
         "Enter with INS inserts a line;",
         "Ctrl+L splits the line at the current column;",
-        "Ctrl+Y deletes line; Alt+Y merges with previous;",
+        "Ctrl+Y deletes line;",
         "Ctrl+arrow (to add) fast movement;",
         "F2 auto indent ON/OFF (flag indn);",
         "F5 merge file; F6 block; F7 copy; F8 move."
@@ -360,19 +360,6 @@ int main(int argc, char *argv[]) {
 
             /* handle Alt+Y as ESC followed by 'y' */
         if (ch == 27) {
-            nodelay(stdscr, TRUE);
-            int next = getch();
-            nodelay(stdscr, FALSE);
-
-            if (next == 'y' || next == 'Y') {
-                unsigned long line = cxp + lin;
-                merge_with_previous(line);
-                if (lin > 0) lin--;
-                else if (cxp > 0) cxp--;
-                refresh_screen();
-                continue;
-            }
-
             /* plain ESC: confirm exit (accept 'y'/'Y' or 's'/'S') */
             mwin(1, "     CONFIRM EXIT? (y/n)       ");
             int c = getch();
