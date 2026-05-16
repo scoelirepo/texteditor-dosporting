@@ -6,6 +6,10 @@
 #define COLS_PER_LINE 80
 #define MAX_LINES     5000
 
+#define HEADER_HEIGHT    1
+#define FOOTER_HEIGHT    2
+#define CONTENT_HEIGHT   (LINES - HEADER_HEIGHT - FOOTER_HEIGHT)
+
 static unsigned char *j;      // buffer testo
 #define BUF(line, col) j[(line) * COLS_PER_LINE + (col)]
 
@@ -23,6 +27,28 @@ void guida(void);
 int  save_file(const char *fln, unsigned nc);
 unsigned long load_file(const char *flnm, unsigned long mlin);
 void refresh_screen(void);
+
+/* --- utility functions --- */
+
+// Helper: Find the index of the last non-space character in a line
+// Returns -1 if the entire line is spaces, or 0..COLS_PER_LINE-1
+static int find_last_content_col(unsigned long line) {
+    for (int col = COLS_PER_LINE - 1; col >= 0; col--) {
+        if (BUF(line, col) != ' ') {
+            return col;
+        }
+    }
+    return -1;
+}
+
+// Wrapper that checks if we can safely add a line
+static int try_add_line(unsigned long line) {
+    if (fcon >= MAX_LINES - 1) {
+        mwin(1, "    MEMORIA ESAURITA           ");
+        return 0;
+    }
+    return 1;
+}
 
 /* --- funzioni di gestione linee (comandi di linea) --- */
 
@@ -78,18 +104,20 @@ void merge_with_previous(unsigned long line) {
     if (line == 0) return;
     unsigned long prev = line - 1;
 
-    int y;
-    for (y = COLS_PER_LINE - 1; y >= 0 && BUF(prev, y) == ' '; y--);
-    int start = y + 1;
-    if (start >= COLS_PER_LINE) return;
+    int last_col = find_last_content_col(prev);
+    int start = last_col + 1;
+    
+    if (start >= COLS_PER_LINE) {
+        // Previous line is full; cannot merge without data loss
+        mwin(1, "  LINEA PRECEDENTE PIENA      ");
+        return;
+    }
 
     int src = 0;
     while (start < COLS_PER_LINE && src < COLS_PER_LINE) {
         BUF(prev, start++) = BUF(line, src++);
     }
 
-    // qui potremmo gestire l’overflow come nel tuo codice originale;
-    // per ora, il testo oltre colonna 80 viene perso.
     delete_line(line);
 }
 
@@ -98,7 +126,7 @@ void merge_with_previous(unsigned long line) {
 void refresh_screen(void) {
     int maxy, maxx;
     getmaxyx(stdscr, maxy, maxx);
-    int vis_lines = maxy - 3;
+    int vis_lines = CONTENT_HEIGHT;
 
     attron(COLOR_PAIR(1));
     mvhline(0, 0, ' ', maxx);
@@ -110,7 +138,7 @@ void refresh_screen(void) {
     attron(COLOR_PAIR(3));
     for (int scr_line = 0; scr_line < vis_lines; scr_line++) {
         unsigned long file_line = cxp + scr_line;
-        move(scr_line + 2, 0);
+        move(scr_line + HEADER_HEIGHT, 0);
         if (file_line < fcon) {
             for (int c = 0; c < COLS_PER_LINE; c++)
                 addch(BUF(file_line, c));
@@ -121,17 +149,17 @@ void refresh_screen(void) {
     attroff(COLOR_PAIR(3));
 
     if (fcon < (unsigned long)vis_lines) {
-        move(fcon + 2, 0);
+        move(fcon + HEADER_HEIGHT, 0);
         attron(COLOR_PAIR(2));
         const char *end = ">>>>>>>>>>>>>>>>>>>>  FINE  <<<<<<<<<<<<<<<<<<<<";
         int len = (int)strlen(end);
         int start = (COLS_PER_LINE - len) / 2;
         hline(' ', COLS_PER_LINE);
-        mvaddnstr(fcon + 2, start, end, len);
+        mvaddnstr(fcon + HEADER_HEIGHT, start, end, len);
         attroff(COLOR_PAIR(2));
     }
 
-    move(lin + 2, col - 1);
+    move(lin + HEADER_HEIGHT, col - 1);
     refresh();
 }
 
@@ -141,15 +169,17 @@ int save_file(const char *fln, unsigned nc) {
     FILE *fp = fopen(fln, "w");
     if (!fp) return 1;
 
-    for (unsigned long gg = 0; gg < nc; gg++) {
-        int lk;
-        for (lk = COLS_PER_LINE - 1; lk >= 0 && BUF(gg, lk) == ' '; lk--);
-        if (lk >= 0) {
-            for (int hy = 0; hy <= lk; hy++)
-                fputc(BUF(gg, hy), fp);
+    for (unsigned long line = 0; line < nc; line++) {
+        int last_col = find_last_content_col(line);
+        
+        if (last_col >= 0) {
+            // Write from column 0 to last_col (inclusive)
+            for (int col = 0; col <= last_col; col++) {
+                fputc(BUF(line, col), fp);
+            }
         }
-        if (lk != COLS_PER_LINE - 1)
-            fputc('\n', fp);
+        // Write newline
+        fputc('\n', fp);
     }
     fclose(fp);
     return 0;
@@ -354,9 +384,9 @@ int main(int argc, char *argv[]) {
 
         case KEY_DOWN:
             if ((unsigned long)(cxp + lin + 1) < fcon &&
-                lin < (LINES - 3 - 1)) {
+                lin < (CONTENT_HEIGHT - 1)) {
                 lin++;
-            } else if ((unsigned long)(cxp + (LINES - 3)) < fcon) {
+            } else if ((unsigned long)(cxp + CONTENT_HEIGHT) < fcon) {
                 cxp++;
             }
             break;
@@ -407,7 +437,7 @@ int main(int argc, char *argv[]) {
                         "        MEMORIA ESAURITA     \0");
                 break;
             }
-            if (lin < LINES - 4) lin++;
+            if (lin < CONTENT_HEIGHT - 1) lin++;
             else cxp++;
             col = 1;
         }
@@ -420,7 +450,7 @@ int main(int argc, char *argv[]) {
                         "        MEMORIA ESAURITA     \0");
                 break;
             }
-            if (lin < LINES - 4) lin++;
+            if (lin < CONTENT_HEIGHT - 1) lin++;
             else cxp++;
             col = 1;
         }
@@ -431,7 +461,7 @@ int main(int argc, char *argv[]) {
             delete_line(line);
             if (cxp + lin >= fcon && lin > 0)
                 lin--;
-            if (cxp > 0 && cxp + (LINES - 3) > fcon)
+            if (cxp > 0 && cxp + CONTENT_HEIGHT > fcon)
                 cxp--;
         }
             break;
