@@ -39,7 +39,7 @@ static int indn = 0;             // auto-indent flag (currently unused)
 
 static char filename[256];
 
-void mwin(int nr, const char *mess);
+int  mwin(int nr, const char *mess);
 void guida(void);
 int  save_file(const char *fln, unsigned nc);
 unsigned long load_file(const char *flnm, unsigned long mlin);
@@ -257,7 +257,7 @@ unsigned long load_file(const char *flnm, unsigned long mlin) {
 
 /* --- windows --- */
 
-void mwin(int nr, const char *mess) {
+int mwin(int nr, const char *mess) {
     int h = 7;
     int w = 42;
     int y = (LINES - h) / 2;
@@ -273,9 +273,10 @@ void mwin(int nr, const char *mess) {
 
     wattroff(win, COLOR_PAIR(2));
     wrefresh(win);
-    getch();
+    int ch = getch();
     delwin(win);
     refresh_screen();
+    return ch;
 }
 
 void guida(void) {
@@ -361,8 +362,7 @@ int main(int argc, char *argv[]) {
             /* handle Alt+Y as ESC followed by 'y' */
         if (ch == 27) {
             /* plain ESC: confirm exit (accept 'y'/'Y' or 's'/'S') */
-            mwin(1, "     CONFIRM EXIT? (y/n)       ");
-            int c = getch();
+            int c = mwin(1, "     CONFIRM EXIT? (y/n)       ");
             if (c == 's' || c == 'S' || c == 'y' || c == 'Y') {
                 break;
             }
